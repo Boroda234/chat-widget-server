@@ -115,6 +115,15 @@ document.addEventListener('DOMContentLoaded', () => {
         loadChatState();
     });
 
+    // Send message on Enter key press
+    messageInput.addEventListener('keydown', (e) => {
+        // Check if Enter is pressed without the Shift key
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault(); // Prevent adding a new line
+            chatForm.requestSubmit(); // Trigger form submission
+        }
+    });
+
     // Initial load
     loadChatState();
 
