@@ -77,6 +77,38 @@ body {
     border-bottom-left-radius: 4px;
 }
 
+/* Typing indicator styles */
+.typing-indicator .text {
+    display: flex;
+    align-items: center;
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
+
+.typing-dot {
+    background-color: #a0a0a0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin: 0 2px;
+    animation: typing-blink 1.4s infinite both;
+}
+
+.typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing-blink {
+    0% { opacity: 0.2; }
+    20% { opacity: 1; }
+    100% { opacity: 0.2; }
+}
+
+
 /* Input area */
 .chat-input-area {
     padding: 12px;

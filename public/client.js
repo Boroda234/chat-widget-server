@@ -31,11 +31,23 @@ document.addEventListener('DOMContentLoaded', () => {
         messagesContainer.appendChild(bubble);
     };
 
+    const renderTypingIndicator = () => {
+        const indicator = document.createElement('div');
+        indicator.classList.add('message-bubble', 'other-message', 'typing-indicator');
+        indicator.innerHTML = `
+            <div class="sender">Manager</div>
+            <div class="text">
+                <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+            </div>
+        `;
+        messagesContainer.appendChild(indicator);
+    };
+
     const scrollToBottom = () => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     };
 
-    const loadMessages = async () => {
+    const loadChatState = async () => {
         const currentName = nameInput.value.trim();
         if (!currentName) {
             messagesContainer.innerHTML = '<p style="text-align: center; font-size: 12px; color: #aaa;">Enter your name to start chatting.</p>';
@@ -43,15 +55,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            const response = await fetch(`${API_URL}/messages?user=${encodeURIComponent(currentName)}`);
-            if (!response.ok) throw new Error('Failed to fetch messages');
-            const messages = await response.json();
+            // Fetch messages and status in parallel
+            const [messagesResponse, statusResponse] = await Promise.all([
+                fetch(`${API_URL}/messages?user=${encodeURIComponent(currentName)}`),
+                fetch(`${API_URL}/status?user=${encodeURIComponent(currentName)}`)
+            ]);
+
+            if (!messagesResponse.ok) throw new Error('Failed to fetch messages');
+            if (!statusResponse.ok) throw new Error('Failed to fetch status');
+
+            const messages = await messagesResponse.json();
+            const status = await statusResponse.json();
             
-            messagesContainer.innerHTML = ''; // Clear existing messages
+            messagesContainer.innerHTML = ''; // Clear existing content
+            
             messages.forEach(msg => renderMessage(msg));
+
+            if (status.isTyping) {
+                renderTypingIndicator();
+            }
+
             scrollToBottom();
         } catch (error) {
-            console.error('Error loading messages:', error);
+            console.error('Error loading chat state:', error);
             messagesContainer.innerHTML = '<p>Could not load messages.</p>';
         }
     };
@@ -86,12 +112,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     nameInput.addEventListener('change', () => {
         localStorage.setItem('chat_widget_user_name', nameInput.value.trim());
-        loadMessages();
+        loadChatState();
     });
 
     // Initial load
-    loadMessages();
+    loadChatState();
 
-    // Poll for new messages
-    setInterval(loadMessages, 5000);
+    // Poll for new messages and typing status
+    setInterval(loadChatState, 3000);
 });

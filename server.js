@@ -7,6 +7,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MESSAGES_FILE = path.join(__dirname, 'messages.json');
 
+// In-memory store for typing status { recipientName: timestamp }
+const typingStatus = {};
+const TYPING_TIMEOUT_MS = 8 * 1000; // 8 seconds
+
 // Middleware
 app.use(cors()); // Enable CORS for all routes
 app.use(express.json()); // To parse JSON bodies
@@ -95,6 +99,38 @@ app.post('/message', (req, res) => {
         });
     });
 });
+
+// New endpoint for typing signals
+app.post('/typing', (req, res) => {
+    const { recipient } = req.body;
+    if (recipient && typeof recipient === 'string') {
+        typingStatus[recipient] = Date.now();
+        res.status(200).send();
+    } else {
+        res.status(400).json({ error: 'Invalid recipient.' });
+    }
+});
+
+// New endpoint for clients to check status
+app.get('/status', (req, res) => {
+    const { user } = req.query;
+    if (!user) {
+        return res.status(400).json({ error: 'User parameter is required.' });
+    }
+
+    const typingTimestamp = typingStatus[user];
+    const isTyping = typingTimestamp && (Date.now() - typingTimestamp < TYPING_TIMEOUT_MS);
+
+    if (isTyping) {
+        res.json({ isTyping: true });
+    } else {
+        if (typingStatus[user]) {
+            delete typingStatus[user];
+        }
+        res.json({ isTyping: false });
+    }
+});
+
 
 // Serve a test page
 app.get('/', (req, res) => {

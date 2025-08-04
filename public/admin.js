@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_URL = ''; // Relative path
     const conversationsContainer = document.getElementById('conversations-container');
     const MANAGER_NAME = 'Manager';
+    const typingTimeouts = {};
 
     const renderConversations = (messages) => {
         // Group messages by user name
@@ -118,6 +119,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Error sending reply:', error);
                 alert('Could not send reply.');
             }
+        }
+    });
+
+    // Listen for typing in any reply textarea
+    conversationsContainer.addEventListener('input', (e) => {
+        if (e.target.tagName === 'TEXTAREA' && e.target.closest('.reply-form')) {
+            const form = e.target.closest('.reply-form');
+            const recipient = form.dataset.recipient;
+
+            // If no timeout is active for this recipient, send the signal
+            if (!typingTimeouts[recipient]) {
+                fetch(`${API_URL}/typing`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recipient }),
+                }).catch(err => console.error('Typing signal failed', err));
+            }
+
+            // Clear any existing timeout
+            clearTimeout(typingTimeouts[recipient]);
+
+            // Set a new timeout. As long as the manager keeps typing, no new request will be sent.
+            typingTimeouts[recipient] = setTimeout(() => {
+                delete typingTimeouts[recipient];
+            }, 5000); // Throttle for 5 seconds
         }
     });
 
