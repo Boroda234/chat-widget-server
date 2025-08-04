@@ -4,8 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const MANAGER_NAME = 'Manager';
     const typingTimeouts = {};
 
-    const renderConversations = (messages) => {
-        // Group messages by user name
+    const renderOrUpdateConversations = (messages) => {
         const conversations = messages.reduce((acc, msg) => {
             const key = msg.name === MANAGER_NAME ? msg.recipient : msg.name;
             if (key) {
@@ -17,63 +16,78 @@ document.addEventListener('DOMContentLoaded', () => {
             return acc;
         }, {});
 
-        conversationsContainer.innerHTML = ''; // Clear loading message
-
-        if (Object.keys(conversations).length === 0) {
+        if (Object.keys(conversations).length === 0 && conversationsContainer.children.length < 2) {
             conversationsContainer.innerHTML = '<p>No conversations yet.</p>';
             return;
+        } else if (Object.keys(conversations).length > 0 && conversationsContainer.querySelector('p')) {
+            conversationsContainer.innerHTML = '';
         }
 
         for (const userName in conversations) {
             const userMessages = conversations[userName].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-            
-            const conversationDiv = document.createElement('div');
-            conversationDiv.className = 'conversation';
+            let conversationDiv = conversationsContainer.querySelector(`.conversation[data-username="${userName}"]`);
 
-            const header = document.createElement('h2');
-            header.className = 'conversation-header';
-            header.textContent = `Conversation with ${userName}`;
-            conversationDiv.appendChild(header);
+            if (!conversationDiv) {
+                // Conversation doesn't exist, create it
+                conversationDiv = document.createElement('div');
+                conversationDiv.className = 'conversation';
+                conversationDiv.dataset.username = userName;
 
-            const messagesListDiv = document.createElement('div');
-            messagesListDiv.className = 'messages-list';
-            userMessages.forEach(msg => {
-                const msgDiv = document.createElement('div');
-                msgDiv.className = 'message';
-                const senderSpan = document.createElement('span');
-                senderSpan.className = 'sender';
-                senderSpan.textContent = `${msg.name}: `;
+                const header = document.createElement('h2');
+                header.className = 'conversation-header';
+                header.textContent = `Conversation with ${userName}`;
+                conversationDiv.appendChild(header);
 
-                if (msg.name === MANAGER_NAME) {
-                    senderSpan.classList.add('manager-sender');
+                const messagesListDiv = document.createElement('div');
+                messagesListDiv.className = 'messages-list';
+                conversationDiv.appendChild(messagesListDiv);
+
+                const replyForm = document.createElement('form');
+                replyForm.className = 'reply-form';
+                replyForm.dataset.recipient = userName;
+
+                const textarea = document.createElement('textarea');
+                textarea.placeholder = `Reply to ${userName}...`;
+                textarea.required = true;
+                textarea.rows = 2;
+
+                const button = document.createElement('button');
+                button.type = 'submit';
+                button.textContent = 'Send Reply';
+
+                replyForm.appendChild(textarea);
+                replyForm.appendChild(button);
+                conversationDiv.appendChild(replyForm);
+
+                conversationsContainer.appendChild(conversationDiv);
+            }
+
+            // Update the messages list for this conversation
+            const messagesListDiv = conversationDiv.querySelector('.messages-list');
+            const shouldScroll = messagesListDiv.scrollTop + messagesListDiv.clientHeight >= messagesListDiv.scrollHeight - 20;
+
+            if (messagesListDiv.children.length !== userMessages.length) {
+                messagesListDiv.innerHTML = ''; // Clear only the messages
+                userMessages.forEach(msg => {
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = 'message';
+                    const senderSpan = document.createElement('span');
+                    senderSpan.className = 'sender';
+                    senderSpan.textContent = `${msg.name}: `;
+
+                    if (msg.name === MANAGER_NAME) {
+                        senderSpan.classList.add('manager-sender');
+                    }
+
+                    msgDiv.appendChild(senderSpan);
+                    msgDiv.append(document.createTextNode(msg.message));
+                    messagesListDiv.appendChild(msgDiv);
+                });
+                
+                if (shouldScroll) {
+                    messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
                 }
-
-                msgDiv.appendChild(senderSpan);
-                msgDiv.append(document.createTextNode(msg.message));
-                messagesListDiv.appendChild(msgDiv);
-            });
-            conversationDiv.appendChild(messagesListDiv);
-            messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
-
-            // Reply form
-            const replyForm = document.createElement('form');
-            replyForm.className = 'reply-form';
-            replyForm.dataset.recipient = userName;
-
-            const textarea = document.createElement('textarea');
-            textarea.placeholder = `Reply to ${userName}...`;
-            textarea.required = true;
-            textarea.rows = 2;
-
-            const button = document.createElement('button');
-            button.type = 'submit';
-            button.textContent = 'Send Reply';
-
-            replyForm.appendChild(textarea);
-            replyForm.appendChild(button);
-            conversationDiv.appendChild(replyForm);
-
-            conversationsContainer.appendChild(conversationDiv);
+            }
         }
     };
 
@@ -82,10 +96,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`${API_URL}/messages`);
             if (!response.ok) throw new Error('Failed to fetch messages');
             const messages = await response.json();
-            renderConversations(messages);
+            renderOrUpdateConversations(messages);
         } catch (error) {
             console.error('Error loading conversations:', error);
-            conversationsContainer.innerHTML = '<p>Could not load conversations.</p>';
         }
     };
 
@@ -122,13 +135,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Listen for typing in any reply textarea
     conversationsContainer.addEventListener('input', (e) => {
         if (e.target.tagName === 'TEXTAREA' && e.target.closest('.reply-form')) {
             const form = e.target.closest('.reply-form');
             const recipient = form.dataset.recipient;
 
-            // If no timeout is active for this recipient, send the signal
             if (!typingTimeouts[recipient]) {
                 fetch(`${API_URL}/typing`, {
                     method: 'POST',
@@ -137,13 +148,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }).catch(err => console.error('Typing signal failed', err));
             }
 
-            // Clear any existing timeout
             clearTimeout(typingTimeouts[recipient]);
 
-            // Set a new timeout. As long as the manager keeps typing, no new request will be sent.
             typingTimeouts[recipient] = setTimeout(() => {
                 delete typingTimeouts[recipient];
-            }, 5000); // Throttle for 5 seconds
+            }, 5000);
         }
     });
 
