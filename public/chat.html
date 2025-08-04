@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat</title>
+    <link rel="stylesheet" href="/chat.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h2>Chat with us!</h2>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+            <!-- Messages will be injected here -->
+        </div>
+        <div class="chat-input-area">
+            <form id="chat-form">
+                <input type="text" id="name-input" placeholder="Your Name" required>
+                <textarea id="message-input" placeholder="Type your message..." required></textarea>
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+    <script src="/client.js"></script>
+</body>
+</html>
