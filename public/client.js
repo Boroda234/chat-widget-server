@@ -11,10 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
         nameInput.value = savedName;
     }
 
-    const renderMessage = (msg, isUser) => {
+    const renderMessage = (msg) => {
         const bubble = document.createElement('div');
         bubble.classList.add('message-bubble');
-        bubble.classList.add(isUser ? 'user-message' : 'other-message');
+        
+        const currentName = nameInput.value.trim();
+        bubble.classList.add(msg.name === currentName ? 'user-message' : 'other-message');
 
         const sender = document.createElement('div');
         sender.classList.add('sender');
@@ -34,14 +36,19 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const loadMessages = async () => {
+        const currentName = nameInput.value.trim();
+        if (!currentName) {
+            messagesContainer.innerHTML = '<p style="text-align: center; font-size: 12px; color: #aaa;">Enter your name to start chatting.</p>';
+            return;
+        }
+
         try {
-            const response = await fetch(`${API_URL}/messages`);
+            const response = await fetch(`${API_URL}/messages?user=${encodeURIComponent(currentName)}`);
             if (!response.ok) throw new Error('Failed to fetch messages');
             const messages = await response.json();
             
             messagesContainer.innerHTML = ''; // Clear existing messages
-            const currentName = nameInput.value.trim();
-            messages.forEach(msg => renderMessage(msg, msg.name === currentName));
+            messages.forEach(msg => renderMessage(msg));
             scrollToBottom();
         } catch (error) {
             console.error('Error loading messages:', error);
@@ -56,7 +63,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!name || !message) return;
 
-        // Save name to localStorage
         localStorage.setItem('chat_widget_user_name', name);
 
         try {
@@ -69,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('Failed to send message');
             
             const newMessage = await response.json();
-            renderMessage(newMessage, true);
+            renderMessage(newMessage);
             messageInput.value = '';
             scrollToBottom();
         } catch (error) {
@@ -78,9 +84,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    nameInput.addEventListener('change', () => {
+        localStorage.setItem('chat_widget_user_name', nameInput.value.trim());
+        loadMessages();
+    });
+
     // Initial load
     loadMessages();
 
-    // Poll for new messages (simple implementation)
+    // Poll for new messages
     setInterval(loadMessages, 5000);
 });

@@ -38,17 +38,29 @@ const writeMessages = (messages, callback) => {
 
 // API routes
 app.get('/messages', (req, res) => {
+    const { user } = req.query;
+
     readMessages((err, messages) => {
         if (err) {
             console.error('Error reading messages:', err);
             return res.status(500).json({ error: 'Failed to read messages.' });
         }
-        res.json(messages);
+
+        if (user) {
+            // Filter messages for a specific user's conversation
+            const userMessages = messages.filter(msg => 
+                msg.name === user || msg.recipient === user
+            );
+            res.json(userMessages);
+        } else {
+            // For admin panel, return all messages
+            res.json(messages);
+        }
     });
 });
 
 app.post('/message', (req, res) => {
-    const { name, message } = req.body;
+    const { name, message, recipient } = req.body;
 
     // Basic validation
     if (!name || !message || typeof name !== 'string' || typeof message !== 'string' || name.trim() === '' || message.trim() === '') {
@@ -60,6 +72,11 @@ app.post('/message', (req, res) => {
         message: message.trim(),
         timestamp: new Date().toISOString()
     };
+
+    // Add recipient if provided (for manager replies)
+    if (recipient && typeof recipient === 'string' && recipient.trim() !== '') {
+        newMessage.recipient = recipient.trim();
+    }
 
     readMessages((err, messages) => {
         if (err) {
@@ -87,5 +104,6 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Chat widget server running on http://localhost:${PORT}`);
+    console.log(`Admin panel available at http://localhost:${PORT}/admin.html`);
     console.log(`Embed the chat widget using: <script src="http://localhost:${PORT}/chat.js"></script>`);
 });
