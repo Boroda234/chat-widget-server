@@ -41,13 +41,24 @@
             background-color: #0056b3;
         }
         #dyad-chat-iframe {
-            display: none;
             border: none;
             width: 350px;
             height: 500px;
             border-radius: 10px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
             overflow: hidden;
+            /* Animation properties */
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+            transform-origin: bottom right;
+            visibility: hidden;
+            transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s 0.3s;
+        }
+        #dyad-chat-iframe.is-open {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            visibility: visible;
+            transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s 0s;
         }
         @media (max-width: 400px) {
             #dyad-chat-iframe {
@@ -76,9 +87,9 @@
 
     // Toggle chat box visibility
     chatButton.addEventListener('click', () => {
-        const isHidden = chatIframe.style.display === 'none' || chatIframe.style.display === '';
-        chatIframe.style.display = isHidden ? 'block' : 'none';
-        if (isHidden) {
+        const isOpen = chatIframe.classList.toggle('is-open');
+        
+        if (isOpen) {
             chatButton.innerHTML = `
                 <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
