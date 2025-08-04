@@ -17,7 +17,7 @@
             right: 20px;
             z-index: 9999;
             display: flex;
-            flex-direction: column;
+            flex-direction: column-reverse; /* Corrected stacking order */
             align-items: flex-end;
             gap: 10px;
         }
