@@ -24,7 +24,7 @@
             gap: 10px;
         }
         #dyad-chat-button {
-            background-color: #007bff;
+            background-color: #3b82f6; /* Updated color */
             color: white;
             border: none;
             border-radius: 50%;
@@ -32,7 +32,7 @@
             height: 60px;
             font-size: 24px;
             cursor: pointer;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -41,7 +41,7 @@
         }
         #dyad-chat-button:hover {
             transform: scale(1.1);
-            background-color: #0056b3;
+            background-color: #2563eb; /* Updated hover color */
         }
         #dyad-chat-badge {
             position: absolute;
@@ -64,8 +64,8 @@
             border: none;
             width: 350px;
             height: 500px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            border-radius: 15px; /* Updated border-radius */
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
             overflow: hidden;
             opacity: 0;
             transform: translateY(20px) scale(0.95);
@@ -80,9 +80,14 @@
             transition: opacity 0.3s ease, transform 0.3s ease, visibility 0s 0s;
         }
         @media (max-width: 400px) {
+            #dyad-chat-widget-container {
+                bottom: 15px;
+                right: 15px;
+            }
             #dyad-chat-iframe {
-                width: calc(100vw - 40px);
-                height: calc(100vh - 100px);
+                width: calc(100vw - 30px);
+                height: calc(100vh - 90px);
+                max-height: 600px;
             }
         }
     `;
