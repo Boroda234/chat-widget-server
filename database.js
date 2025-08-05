@@ -1,63 +1,66 @@
-const sqlite3 = require('sqlite3').verbose();
-const { open } = require('sqlite');
+const fs = require('fs').promises;
+const path = require('path');
 
-let db;
+const dbPath = path.join(__dirname, 'messages.json');
+let dbCache = null;
+
+// Вспомогательная функция для чтения файла базы данных
+async function readDb() {
+    if (dbCache) return dbCache;
+    try {
+        await fs.access(dbPath);
+        const data = await fs.readFile(dbPath, 'utf-8');
+        // Если файл пуст, вернем пустой объект
+        dbCache = data ? JSON.parse(data) : {};
+        return dbCache;
+    } catch (error) {
+        // Если файл не существует, инициализируем его
+        dbCache = {};
+        await fs.writeFile(dbPath, JSON.stringify(dbCache, null, 2));
+        return dbCache;
+    }
+}
+
+// Вспомогательная функция для записи в файл базы данных
+async function writeDb(data) {
+    dbCache = data;
+    await fs.writeFile(dbPath, JSON.stringify(data, null, 2));
+}
 
 async function initializeDatabase() {
-    if (db) return db;
-
-    db = await open({
-        filename: './chat.db',
-        driver: sqlite3.Database
-    });
-
-    // Create messages table if it doesn't exist
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            conversation_id TEXT NOT NULL,
-            sender_name TEXT NOT NULL,
-            recipient_name TEXT,
-            message_text TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `);
-
-    console.log('Database initialized successfully.');
-    return db;
+    await readDb();
+    console.log('Database (JSON file) initialized successfully.');
 }
 
 async function addMessage(conversationId, senderName, messageText, recipientName = null) {
-    const db = await initializeDatabase();
-    const result = await db.run(
-        'INSERT INTO messages (conversation_id, sender_name, message_text, recipient_name) VALUES (?, ?, ?, ?)',
-        [conversationId, senderName, messageText, recipientName]
-    );
+    const db = await readDb();
     
-    const newMessage = await db.get('SELECT * FROM messages WHERE id = ?', result.lastID);
+    if (!db[conversationId]) {
+        db[conversationId] = [];
+    }
+
+    const newMessage = {
+        id: Date.now() + Math.random().toString(36).substr(2, 9), // Простой уникальный ID
+        conversation_id: conversationId,
+        sender_name: senderName,
+        recipient_name: recipientName,
+        message_text: messageText,
+        timestamp: new Date().toISOString()
+    };
+
+    db[conversationId].push(newMessage);
+    await writeDb(db);
+    
     return newMessage;
 }
 
 async function getMessagesForConversation(conversationId) {
-    const db = await initializeDatabase();
-    return db.all('SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC', conversationId);
+    const db = await readDb();
+    return db[conversationId] || [];
 }
 
 async function getAllConversations() {
-    const db = await initializeDatabase();
-    const messages = await db.all('SELECT * FROM messages ORDER BY timestamp ASC');
-    
-    // Group messages by conversation_id
-    const conversations = messages.reduce((acc, msg) => {
-        const key = msg.conversation_id;
-        if (!acc[key]) {
-            acc[key] = [];
-        }
-        acc[key].push(msg);
-        return acc;
-    }, {});
-
-    return conversations;
+    return await readDb();
 }
 
 module.exports = {
