@@ -7,6 +7,15 @@ const path = require('path');
 const session = require('express-session');
 const db = require('./database');
 
+// --- НАЧАЛО ИЗМЕНЕНИЙ ---
+// Проверка наличия обязательных переменных окружения
+if (!process.env.SESSION_SECRET || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
+    console.error('FATAL ERROR: Missing required environment variables. Please check your .env file.');
+    console.error('Required variables are: SESSION_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD');
+    process.exit(1); // Завершаем процесс с ошибкой
+}
+// --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
