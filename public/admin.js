@@ -9,12 +9,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
-        // We add a path to the WebSocket URL to distinguish admin connections on the server
         ws = new WebSocket(`${protocol}//${host}/admin`);
 
         ws.onopen = () => {
             console.log('Connected to WebSocket server as admin.');
-            // The server knows we are an admin from the session cookie via the upgrade request
             ws.send(JSON.stringify({ type: 'register', payload: { isAdmin: true } }));
         };
 
@@ -27,7 +25,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (type === 'newMessage') {
                 handleNewMessage(payload);
-                notificationSound.play().catch(e => console.log("Audio play failed:", e));
+                if (payload.sender_name !== MANAGER_NAME) {
+                    notificationSound.play().catch(e => console.log("Audio play failed:", e));
+                }
             }
             if (type === 'typingUpdate') {
                 handleTypingIndicator(payload);
@@ -39,10 +39,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ws.onclose = () => {
             console.log('WebSocket disconnected. You may need to log in again.');
-            // Redirect to login page if connection is lost, as it might be an auth issue
+            conversationsContainer.innerHTML = '<p>Connection lost. Attempting to reconnect or <a href="/login.html">log in again</a>.</p>';
             setTimeout(() => {
                 window.location.href = '/login.html';
-            }, 2000);
+            }, 5000);
         };
     }
 
@@ -52,7 +52,16 @@ document.addEventListener('DOMContentLoaded', () => {
             conversationsContainer.innerHTML = '<p>No conversations yet.</p>';
             return;
         }
-        for (const userName in conversations) {
+        // Sort conversations by the timestamp of the last message
+        const sortedKeys = Object.keys(conversations).sort((a, b) => {
+            const lastMsgA = conversations[a][conversations[a].length - 1];
+            const lastMsgB = conversations[b][conversations[b].length - 1];
+            if (!lastMsgA) return 1;
+            if (!lastMsgB) return -1;
+            return new Date(lastMsgB.timestamp) - new Date(lastMsgA.timestamp);
+        });
+
+        for (const userName of sortedKeys) {
             createConversation(userName, conversations[userName]);
         }
     }
@@ -60,15 +69,27 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleNewMessage(message) {
         const userName = message.conversation_id;
         let conversationDiv = conversationsContainer.querySelector(`.conversation[data-username="${userName}"]`);
+        
+        // Stop showing typing indicator
+        const indicator = conversationDiv ? conversationDiv.querySelector('.typing-indicator-admin') : null;
+        if (indicator) {
+            indicator.style.display = 'none';
+        }
+
         if (!conversationDiv) {
             if (conversationsContainer.querySelector('p')) {
                 conversationsContainer.innerHTML = '';
             }
             createConversation(userName, [message]);
+            // Since it's new, move it to the top
+            const newConv = conversationsContainer.querySelector(`.conversation[data-username="${userName}"]`);
+            conversationsContainer.prepend(newConv);
         } else {
             const messagesListDiv = conversationDiv.querySelector('.messages-list');
             appendMessage(messagesListDiv, message);
             messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
+            // Move updated conversation to the top
+            conversationsContainer.prepend(conversationDiv);
         }
     }
 
@@ -77,9 +98,13 @@ document.addEventListener('DOMContentLoaded', () => {
         conversationDiv.className = 'conversation';
         conversationDiv.dataset.username = userName;
 
-        const header = document.createElement('h2');
+        const header = document.createElement('div');
         header.className = 'conversation-header';
-        header.innerHTML = `Conversation with ${userName} <span class="online-status" data-user="${userName}"></span>`;
+        header.innerHTML = `
+            <span>${userName}</span>
+            <span class="online-status" data-user="${userName}"></span>
+            <span class="online-status-text" data-user-text="${userName}">(Offline)</span>
+        `;
         conversationDiv.appendChild(header);
 
         const messagesListDiv = document.createElement('div');
@@ -88,21 +113,25 @@ document.addEventListener('DOMContentLoaded', () => {
         conversationDiv.appendChild(messagesListDiv);
         messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
 
+        const replyFormContainer = document.createElement('div');
+        replyFormContainer.className = 'reply-form-container';
+        
         const replyForm = document.createElement('form');
         replyForm.className = 'reply-form';
         replyForm.dataset.recipient = userName;
         replyForm.innerHTML = `
-            <textarea placeholder="Reply to ${userName}..." required rows="2"></textarea>
-            <button type="submit">Send Reply</button>
+            <textarea placeholder="Reply to ${userName}..." required rows="1"></textarea>
+            <button type="submit">Send</button>
         `;
-        conversationDiv.appendChild(replyForm);
+        replyFormContainer.appendChild(replyForm);
         
         const typingIndicator = document.createElement('div');
         typingIndicator.className = 'typing-indicator-admin';
         typingIndicator.style.display = 'none';
         typingIndicator.textContent = `${userName} is typing...`;
-        conversationDiv.appendChild(typingIndicator);
+        replyFormContainer.appendChild(typingIndicator);
 
+        conversationDiv.appendChild(replyFormContainer);
         conversationsContainer.appendChild(conversationDiv);
     }
 
@@ -120,7 +149,12 @@ document.addEventListener('DOMContentLoaded', () => {
         container.appendChild(msgDiv);
     }
     
-    function handleTypingIndicator({ conversationId, isTyping }) {
+    function handleTypingIndicator({ conversationId, isTyping, senderName }) {
+        // Don't show typing indicator for admin's own typing
+        if (senderName === MANAGER_NAME) {
+            return;
+        }
+
         const conversationDiv = conversationsContainer.querySelector(`.conversation[data-username="${conversationId}"]`);
         if (conversationDiv) {
             const indicator = conversationDiv.querySelector('.typing-indicator-admin');
@@ -130,12 +164,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateOnlineStatus(onlineUsers) {
         document.querySelectorAll('.online-status').forEach(el => {
-            if (onlineUsers.includes(el.dataset.user)) {
+            const user = el.dataset.user;
+            const textEl = document.querySelector(`.online-status-text[data-user-text="${user}"]`);
+            if (onlineUsers.includes(user)) {
                 el.classList.add('online');
-                el.textContent = '(Online)';
+                if(textEl) textEl.textContent = '(Online)';
             } else {
                 el.classList.remove('online');
-                el.textContent = '(Offline)';
+                if(textEl) textEl.textContent = '(Offline)';
             }
         });
     }
@@ -145,33 +181,38 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const form = e.target;
             const textarea = form.querySelector('textarea');
+            const recipient = form.dataset.recipient;
 
             const payload = {
-                conversationId: form.dataset.recipient,
+                conversationId: recipient,
                 senderName: MANAGER_NAME,
                 messageText: textarea.value.trim(),
-                recipientName: form.dataset.recipient
+                recipientName: recipient
             };
             
             if (!payload.messageText || !ws || ws.readyState !== WebSocket.OPEN) return;
 
             ws.send(JSON.stringify({ type: 'sendMessage', payload }));
             textarea.value = '';
+            
+            // Stop typing indicator after sending
+            clearTimeout(typingTimeouts[recipient]);
+            ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: recipient, senderName: MANAGER_NAME, isTyping: false } }));
         }
     });
     
-    let typingTimeout;
+    const typingTimeouts = {};
     conversationsContainer.addEventListener('input', (e) => {
         if (e.target.tagName === 'TEXTAREA') {
             const form = e.target.closest('.reply-form');
             const recipient = form.dataset.recipient;
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-            clearTimeout(typingTimeout);
-            ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: recipient, isTyping: true } }));
+            clearTimeout(typingTimeouts[recipient]);
+            ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: recipient, senderName: MANAGER_NAME, isTyping: true } }));
             
-            typingTimeout = setTimeout(() => {
-                ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: recipient, isTyping: false } }));
+            typingTimeouts[recipient] = setTimeout(() => {
+                ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: recipient, senderName: MANAGER_NAME, isTyping: false } }));
             }, 3000);
         }
     });

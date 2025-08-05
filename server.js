@@ -136,8 +136,8 @@ wss.on('connection', (ws, req) => {
         }
 
         if (type === 'typing') {
-            const { conversationId, isTyping } = payload;
-            broadcastToConversation(conversationId, { type: 'typingUpdate', payload: { conversationId, isTyping } });
+            const { conversationId, isTyping, senderName } = payload;
+            broadcastToConversation(conversationId, { type: 'typingUpdate', payload: { conversationId, isTyping, senderName } });
         }
     });
 

@@ -35,6 +35,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (type === 'newMessage') {
+                // Remove typing indicator before rendering new message
+                const existingIndicator = messagesContainer.querySelector('.typing-indicator');
+                if (existingIndicator) {
+                    existingIndicator.remove();
+                }
                 renderMessage(payload);
                 scrollToBottom();
                 if (payload.sender_name !== currentName) {
@@ -74,13 +79,14 @@ document.addEventListener('DOMContentLoaded', () => {
         messagesContainer.appendChild(bubble);
     }
 
-    function handleTypingIndicator({ conversationId, isTyping }) {
+    function handleTypingIndicator({ conversationId, senderName, isTyping }) {
         const existingIndicator = messagesContainer.querySelector('.typing-indicator');
         if (existingIndicator) {
             existingIndicator.remove();
         }
 
-        if (isTyping && conversationId === currentName) {
+        // Only show indicator if it's for the current conversation AND it's not from the user themselves.
+        if (isTyping && conversationId === currentName && senderName !== currentName) {
             const indicator = document.createElement('div');
             indicator.classList.add('message-bubble', 'other-message', 'typing-indicator');
             indicator.innerHTML = `
@@ -110,6 +116,9 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         ws.send(JSON.stringify({ type: 'sendMessage', payload }));
         messageInput.value = '';
+        // Stop typing indicator after sending
+        clearTimeout(typingTimeout);
+        ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: currentName, senderName: currentName, isTyping: false } }));
     });
 
     nameInput.addEventListener('change', () => {
@@ -137,10 +146,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
         
         clearTimeout(typingTimeout);
-        ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: currentName, isTyping: true } }));
+        ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: currentName, senderName: currentName, isTyping: true } }));
         
         typingTimeout = setTimeout(() => {
-            ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: currentName, isTyping: false } }));
+            ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: currentName, senderName: currentName, isTyping: false } }));
         }, 3000);
     });
 

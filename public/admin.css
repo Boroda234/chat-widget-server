@@ -13,32 +13,36 @@ body {
 }
 
 .admin-header {
-    position: relative;
-    border-bottom: 1px solid #ddd;
-    padding-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
     margin-bottom: 20px;
 }
 
 .admin-header h1 {
     margin: 0;
+    font-size: 24px;
 }
 
 .logout-button {
-    position: absolute;
-    top: 0;
-    right: 0;
-    background-color: #dc3545;
-    color: white;
-    padding: 8px 12px;
+    background-color: #f8f9fa;
+    color: #dc3545;
+    border: 1px solid #dc3545;
+    padding: 8px 16px;
     text-decoration: none;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 14px;
     font-weight: 600;
-    transition: background-color 0.2s;
+    transition: all 0.2s;
 }
 
 .logout-button:hover {
-    background-color: #c82333;
+    background-color: #dc3545;
+    color: white;
 }
 
 .conversation {
@@ -46,45 +50,56 @@ body {
     border: 1px solid #e0e0e0;
     border-radius: 8px;
     margin-bottom: 20px;
-    padding: 15px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    overflow: hidden; /* To contain the border-radius */
 }
 
 .conversation-header {
     font-size: 18px;
-    font-weight: bold;
-    margin-bottom: 15px;
-    color: #333;
+    font-weight: 600;
+    padding: 15px 20px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
 }
 
 .online-status {
-    font-size: 12px;
-    font-weight: normal;
-    color: #888;
-    margin-left: 8px;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #6c757d; /* Offline by default */
+    margin-left: 12px;
+    transition: background-color 0.3s;
 }
 
 .online-status.online {
+    background-color: #28a745; /* Online */
+}
+
+.online-status-text {
+    font-size: 12px;
+    font-weight: normal;
+    color: #6c757d;
+    margin-left: 4px;
+}
+
+.online-status.online + .online-status-text {
     color: #28a745;
 }
 
 .messages-list {
     max-height: 300px;
     overflow-y: auto;
-    border: 1px solid #eee;
-    padding: 10px;
-    margin-bottom: 15px;
-    border-radius: 4px;
+    padding: 15px 20px;
+    background-color: #fff;
 }
 
 .message {
-    padding: 5px 0;
-    border-bottom: 1px solid #f5f5f5;
+    padding: 8px 0;
     font-size: 14px;
-}
-
-.message:last-child {
-    border-bottom: none;
+    line-height: 1.5;
 }
 
 .message .sender {
@@ -96,27 +111,39 @@ body {
     color: #28a745;
 }
 
+.reply-form-container {
+    padding: 15px 20px;
+    background-color: #f8f9fa;
+    border-top: 1px solid #e0e0e0;
+}
+
 .reply-form {
     display: flex;
     gap: 10px;
-    margin-top: 10px;
 }
 
 .reply-form textarea {
     flex-grow: 1;
-    padding: 8px 12px;
-    border-radius: 4px;
+    padding: 10px 12px;
+    border-radius: 6px;
     border: 1px solid #ccc;
     resize: vertical;
     font-size: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.reply-form textarea:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
 }
 
 .reply-form button {
-    padding: 8px 15px;
+    padding: 10px 20px;
     border: none;
     background-color: #28a745;
     color: white;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     font-weight: 600;
     transition: background-color 0.2s;
@@ -127,9 +154,10 @@ body {
 }
 
 .typing-indicator-admin {
-    font-size: 12px;
-    color: #888;
-    margin-top: 8px;
-    padding-left: 5px;
-    height: 16px;
+    font-size: 13px;
+    color: #6c757d;
+    font-style: italic;
+    padding: 5px 20px 10px;
+    height: 18px;
+    background-color: #f8f9fa;
 }
