@@ -1,29 +1,72 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const path = require('path');
+const session = require('express-session');
 const db = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Session middleware setup
+const sessionParser = session({
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours
+});
+
 // Middleware
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.urlencoded({ extended: true })); // for parsing form data
+app.use(sessionParser);
 
-// Serve a test page
+// Routes
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'test-page.html'));
 });
 
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+    if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
+        req.session.user = { username: username };
+        res.redirect('/admin.html');
+    } else {
+        res.redirect('/login.html?error=1');
+    }
+});
+
+app.get('/logout', (req, res) => {
+    req.session.destroy(() => {
+        res.redirect('/login.html');
+    });
+});
+
+// Auth middleware for protected routes
+function requireAuth(req, res, next) {
+    if (req.session && req.session.user) {
+        return next();
+    }
+    res.redirect('/login.html');
+}
+
+// Protect admin page
+app.get('/admin.html', requireAuth, (req, res) => {
+    // This is needed to override the static middleware for the protected route
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ noServer: true });
 
 // In-memory stores
-const clients = new Map(); // { ws: { conversationId, isAdmin } }
-const onlineUsers = new Set(); // { 'John Doe', 'Jane Smith' }
+const clients = new Map();
+const onlineUsers = new Set();
 
+// WebSocket broadcast functions
 function broadcastToConversation(conversationId, message) {
     for (const [client, meta] of clients.entries()) {
         if (client.readyState === client.OPEN && (meta.conversationId === conversationId || meta.isAdmin)) {
@@ -41,28 +84,24 @@ function broadcastToAdmins(message) {
 }
 
 function updateOnlineStatus() {
-    broadcastToAdmins({
-        type: 'onlineStatusUpdate',
-        payload: Array.from(onlineUsers)
-    });
+    broadcastToAdmins({ type: 'onlineStatusUpdate', payload: Array.from(onlineUsers) });
 }
 
-wss.on('connection', (ws) => {
+// Handle WebSocket connections
+wss.on('connection', (ws, req) => {
     console.log('Client connected');
 
     ws.on('message', async (message) => {
         let data;
         try {
             data = JSON.parse(message);
-        } catch (e) {
-            console.error('Invalid JSON received:', message);
-            return;
-        }
+        } catch (e) { return; }
 
         const { type, payload } = data;
+        const isAdmin = req.session && req.session.user;
 
         if (type === 'register') {
-            const { conversationId, isAdmin } = payload;
+            const { conversationId } = payload;
             clients.set(ws, { conversationId, isAdmin });
 
             if (isAdmin) {
@@ -102,11 +141,28 @@ wss.on('connection', (ws) => {
     });
 });
 
+// Handle server upgrade to WebSocket, checking for auth
+server.on('upgrade', (request, socket, head) => {
+    sessionParser(request, {}, () => {
+        // For admin connections, check session
+        if (request.url.startsWith('/admin')) {
+            if (!request.session || !request.session.user) {
+                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+        }
+
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit('connection', ws, request);
+        });
+    });
+});
+
 // Initialize database and start server
 db.initializeDatabase().then(() => {
     server.listen(PORT, () => {
         console.log(`Chat widget server running on http://localhost:${PORT}`);
-        console.log(`Admin panel available at http://localhost:${PORT}/admin.html`);
     });
 }).catch(err => {
     console.error('Failed to initialize database:', err);

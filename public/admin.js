@@ -9,10 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
-        ws = new WebSocket(`${protocol}//${host}`);
+        // We add a path to the WebSocket URL to distinguish admin connections on the server
+        ws = new WebSocket(`${protocol}//${host}/admin`);
 
         ws.onopen = () => {
             console.log('Connected to WebSocket server as admin.');
+            // The server knows we are an admin from the session cookie via the upgrade request
             ws.send(JSON.stringify({ type: 'register', payload: { isAdmin: true } }));
         };
 
@@ -36,8 +38,11 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         ws.onclose = () => {
-            console.log('WebSocket disconnected. Reconnecting...');
-            setTimeout(connect, 3000);
+            console.log('WebSocket disconnected. You may need to log in again.');
+            // Redirect to login page if connection is lost, as it might be an auth issue
+            setTimeout(() => {
+                window.location.href = '/login.html';
+            }, 2000);
         };
     }
 
@@ -56,13 +61,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const userName = message.conversation_id;
         let conversationDiv = conversationsContainer.querySelector(`.conversation[data-username="${userName}"]`);
         if (!conversationDiv) {
-            // If it's a new conversation, create the whole block
             if (conversationsContainer.querySelector('p')) {
                 conversationsContainer.innerHTML = '';
             }
             createConversation(userName, [message]);
         } else {
-            // Just append the new message
             const messagesListDiv = conversationDiv.querySelector('.messages-list');
             appendMessage(messagesListDiv, message);
             messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
