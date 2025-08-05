@@ -1,161 +1,177 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const API_URL = ''; // Relative path
     const conversationsContainer = document.getElementById('conversations-container');
+    const notificationSound = document.getElementById('notification-sound');
     const MANAGER_NAME = 'Manager';
-    const typingTimeouts = {};
+    let ws;
 
-    const renderOrUpdateConversations = (messages) => {
-        const conversations = messages.reduce((acc, msg) => {
-            const key = msg.name === MANAGER_NAME ? msg.recipient : msg.name;
-            if (key) {
-                if (!acc[key]) {
-                    acc[key] = [];
-                }
-                acc[key].push(msg);
+    function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        ws = new WebSocket(`${protocol}//${host}`);
+
+        ws.onopen = () => {
+            console.log('Connected to WebSocket server as admin.');
+            ws.send(JSON.stringify({ type: 'register', payload: { isAdmin: true } }));
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const { type, payload } = data;
+
+            if (type === 'allConversations') {
+                renderAllConversations(payload);
             }
-            return acc;
-        }, {});
+            if (type === 'newMessage') {
+                handleNewMessage(payload);
+                notificationSound.play().catch(e => console.log("Audio play failed:", e));
+            }
+            if (type === 'typingUpdate') {
+                handleTypingIndicator(payload);
+            }
+            if (type === 'onlineStatusUpdate') {
+                updateOnlineStatus(payload);
+            }
+        };
 
-        if (Object.keys(conversations).length === 0 && conversationsContainer.children.length < 2) {
+        ws.onclose = () => {
+            console.log('WebSocket disconnected. Reconnecting...');
+            setTimeout(connect, 3000);
+        };
+    }
+
+    function renderAllConversations(conversations) {
+        conversationsContainer.innerHTML = '';
+        if (Object.keys(conversations).length === 0) {
             conversationsContainer.innerHTML = '<p>No conversations yet.</p>';
             return;
-        } else if (Object.keys(conversations).length > 0 && conversationsContainer.querySelector('p')) {
-            conversationsContainer.innerHTML = '';
         }
-
         for (const userName in conversations) {
-            const userMessages = conversations[userName].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-            let conversationDiv = conversationsContainer.querySelector(`.conversation[data-username="${userName}"]`);
+            createConversation(userName, conversations[userName]);
+        }
+    }
 
-            if (!conversationDiv) {
-                // Conversation doesn't exist, create it
-                conversationDiv = document.createElement('div');
-                conversationDiv.className = 'conversation';
-                conversationDiv.dataset.username = userName;
-
-                const header = document.createElement('h2');
-                header.className = 'conversation-header';
-                header.textContent = `Conversation with ${userName}`;
-                conversationDiv.appendChild(header);
-
-                const messagesListDiv = document.createElement('div');
-                messagesListDiv.className = 'messages-list';
-                conversationDiv.appendChild(messagesListDiv);
-
-                const replyForm = document.createElement('form');
-                replyForm.className = 'reply-form';
-                replyForm.dataset.recipient = userName;
-
-                const textarea = document.createElement('textarea');
-                textarea.placeholder = `Reply to ${userName}...`;
-                textarea.required = true;
-                textarea.rows = 2;
-
-                const button = document.createElement('button');
-                button.type = 'submit';
-                button.textContent = 'Send Reply';
-
-                replyForm.appendChild(textarea);
-                replyForm.appendChild(button);
-                conversationDiv.appendChild(replyForm);
-
-                conversationsContainer.appendChild(conversationDiv);
+    function handleNewMessage(message) {
+        const userName = message.conversation_id;
+        let conversationDiv = conversationsContainer.querySelector(`.conversation[data-username="${userName}"]`);
+        if (!conversationDiv) {
+            // If it's a new conversation, create the whole block
+            if (conversationsContainer.querySelector('p')) {
+                conversationsContainer.innerHTML = '';
             }
-
-            // Update the messages list for this conversation
+            createConversation(userName, [message]);
+        } else {
+            // Just append the new message
             const messagesListDiv = conversationDiv.querySelector('.messages-list');
-            const shouldScroll = messagesListDiv.scrollTop + messagesListDiv.clientHeight >= messagesListDiv.scrollHeight - 20;
+            appendMessage(messagesListDiv, message);
+            messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
+        }
+    }
 
-            if (messagesListDiv.children.length !== userMessages.length) {
-                messagesListDiv.innerHTML = ''; // Clear only the messages
-                userMessages.forEach(msg => {
-                    const msgDiv = document.createElement('div');
-                    msgDiv.className = 'message';
-                    const senderSpan = document.createElement('span');
-                    senderSpan.className = 'sender';
-                    senderSpan.textContent = `${msg.name}: `;
+    function createConversation(userName, messages) {
+        const conversationDiv = document.createElement('div');
+        conversationDiv.className = 'conversation';
+        conversationDiv.dataset.username = userName;
 
-                    if (msg.name === MANAGER_NAME) {
-                        senderSpan.classList.add('manager-sender');
-                    }
+        const header = document.createElement('h2');
+        header.className = 'conversation-header';
+        header.innerHTML = `Conversation with ${userName} <span class="online-status" data-user="${userName}"></span>`;
+        conversationDiv.appendChild(header);
 
-                    msgDiv.appendChild(senderSpan);
-                    msgDiv.append(document.createTextNode(msg.message));
-                    messagesListDiv.appendChild(msgDiv);
-                });
-                
-                if (shouldScroll) {
-                    messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
-                }
+        const messagesListDiv = document.createElement('div');
+        messagesListDiv.className = 'messages-list';
+        messages.forEach(msg => appendMessage(messagesListDiv, msg));
+        conversationDiv.appendChild(messagesListDiv);
+        messagesListDiv.scrollTop = messagesListDiv.scrollHeight;
+
+        const replyForm = document.createElement('form');
+        replyForm.className = 'reply-form';
+        replyForm.dataset.recipient = userName;
+        replyForm.innerHTML = `
+            <textarea placeholder="Reply to ${userName}..." required rows="2"></textarea>
+            <button type="submit">Send Reply</button>
+        `;
+        conversationDiv.appendChild(replyForm);
+        
+        const typingIndicator = document.createElement('div');
+        typingIndicator.className = 'typing-indicator-admin';
+        typingIndicator.style.display = 'none';
+        typingIndicator.textContent = `${userName} is typing...`;
+        conversationDiv.appendChild(typingIndicator);
+
+        conversationsContainer.appendChild(conversationDiv);
+    }
+
+    function appendMessage(container, msg) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'message';
+        const senderSpan = document.createElement('span');
+        senderSpan.className = 'sender';
+        senderSpan.textContent = `${msg.sender_name}: `;
+        if (msg.sender_name === MANAGER_NAME) {
+            senderSpan.classList.add('manager-sender');
+        }
+        msgDiv.appendChild(senderSpan);
+        msgDiv.append(document.createTextNode(msg.message_text));
+        container.appendChild(msgDiv);
+    }
+    
+    function handleTypingIndicator({ conversationId, isTyping }) {
+        const conversationDiv = conversationsContainer.querySelector(`.conversation[data-username="${conversationId}"]`);
+        if (conversationDiv) {
+            const indicator = conversationDiv.querySelector('.typing-indicator-admin');
+            indicator.style.display = isTyping ? 'block' : 'none';
+        }
+    }
+
+    function updateOnlineStatus(onlineUsers) {
+        document.querySelectorAll('.online-status').forEach(el => {
+            if (onlineUsers.includes(el.dataset.user)) {
+                el.classList.add('online');
+                el.textContent = '(Online)';
+            } else {
+                el.classList.remove('online');
+                el.textContent = '(Offline)';
             }
-        }
-    };
+        });
+    }
 
-    const loadConversations = async () => {
-        try {
-            const response = await fetch(`${API_URL}/messages`);
-            if (!response.ok) throw new Error('Failed to fetch messages');
-            const messages = await response.json();
-            renderOrUpdateConversations(messages);
-        } catch (error) {
-            console.error('Error loading conversations:', error);
-        }
-    };
-
-    conversationsContainer.addEventListener('submit', async (e) => {
+    conversationsContainer.addEventListener('submit', (e) => {
         if (e.target.classList.contains('reply-form')) {
             e.preventDefault();
             const form = e.target;
             const textarea = form.querySelector('textarea');
-            const recipient = form.dataset.recipient;
-            const message = textarea.value.trim();
 
-            if (!message || !recipient) return;
+            const payload = {
+                conversationId: form.dataset.recipient,
+                senderName: MANAGER_NAME,
+                messageText: textarea.value.trim(),
+                recipientName: form.dataset.recipient
+            };
+            
+            if (!payload.messageText || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-            try {
-                const response = await fetch(`${API_URL}/message`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: MANAGER_NAME,
-                        message: message,
-                        recipient: recipient
-                    }),
-                });
-
-                if (!response.ok) throw new Error('Failed to send reply');
-                
-                textarea.value = '';
-                loadConversations();
-
-            } catch (error) {
-                console.error('Error sending reply:', error);
-                alert('Could not send reply.');
-            }
+            ws.send(JSON.stringify({ type: 'sendMessage', payload }));
+            textarea.value = '';
         }
     });
-
+    
+    let typingTimeout;
     conversationsContainer.addEventListener('input', (e) => {
-        if (e.target.tagName === 'TEXTAREA' && e.target.closest('.reply-form')) {
+        if (e.target.tagName === 'TEXTAREA') {
             const form = e.target.closest('.reply-form');
             const recipient = form.dataset.recipient;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-            if (!typingTimeouts[recipient]) {
-                fetch(`${API_URL}/typing`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ recipient }),
-                }).catch(err => console.error('Typing signal failed', err));
-            }
-
-            clearTimeout(typingTimeouts[recipient]);
-
-            typingTimeouts[recipient] = setTimeout(() => {
-                delete typingTimeouts[recipient];
-            }, 5000);
+            clearTimeout(typingTimeout);
+            ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: recipient, isTyping: true } }));
+            
+            typingTimeout = setTimeout(() => {
+                ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: recipient, isTyping: false } }));
+            }, 3000);
         }
     });
 
-    loadConversations();
-    setInterval(loadConversations, 7000);
+    connect();
 });

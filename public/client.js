@@ -1,132 +1,152 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const API_URL = ''; // Relative path to the server
     const chatForm = document.getElementById('chat-form');
     const nameInput = document.getElementById('name-input');
     const messageInput = document.getElementById('message-input');
     const messagesContainer = document.getElementById('chat-messages');
+    const notificationSound = document.getElementById('notification-sound');
 
-    // Load name from localStorage
-    const savedName = localStorage.getItem('chat_widget_user_name');
-    if (savedName) {
-        nameInput.value = savedName;
+    let ws;
+    let typingTimeout;
+    let currentName = localStorage.getItem('chat_widget_user_name') || '';
+    nameInput.value = currentName;
+
+    function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        ws = new WebSocket(`${protocol}//${host}`);
+
+        ws.onopen = () => {
+            console.log('Connected to WebSocket server.');
+            if (currentName) {
+                ws.send(JSON.stringify({ type: 'register', payload: { conversationId: currentName } }));
+            }
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const { type, payload } = data;
+
+            if (type === 'history') {
+                messagesContainer.innerHTML = '';
+                payload.forEach(renderMessage);
+                scrollToBottom();
+            }
+
+            if (type === 'newMessage') {
+                renderMessage(payload);
+                scrollToBottom();
+                if (payload.sender_name !== currentName) {
+                    notificationSound.play().catch(e => console.log("Audio play failed:", e));
+                    if (document.hidden) {
+                        window.parent.postMessage({ type: 'dyad-chat-unread' }, '*');
+                    }
+                }
+            }
+
+            if (type === 'typingUpdate') {
+                handleTypingIndicator(payload);
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket disconnected. Reconnecting...');
+            setTimeout(connect, 3000);
+        };
     }
 
-    const renderMessage = (msg) => {
+    function renderMessage(msg) {
         const bubble = document.createElement('div');
         bubble.classList.add('message-bubble');
-        
-        const currentName = nameInput.value.trim();
-        bubble.classList.add(msg.name === currentName ? 'user-message' : 'other-message');
+        bubble.classList.add(msg.sender_name === currentName ? 'user-message' : 'other-message');
 
         const sender = document.createElement('div');
         sender.classList.add('sender');
-        sender.textContent = msg.name;
+        sender.textContent = msg.sender_name;
 
         const text = document.createElement('div');
         text.classList.add('text');
-        text.textContent = msg.message;
+        text.textContent = msg.message_text;
 
         bubble.appendChild(sender);
         bubble.appendChild(text);
         messagesContainer.appendChild(bubble);
-    };
+    }
 
-    const renderTypingIndicator = () => {
-        const indicator = document.createElement('div');
-        indicator.classList.add('message-bubble', 'other-message', 'typing-indicator');
-        indicator.innerHTML = `
-            <div class="sender">Manager</div>
-            <div class="text">
-                <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
-            </div>
-        `;
-        messagesContainer.appendChild(indicator);
-    };
+    function handleTypingIndicator({ conversationId, isTyping }) {
+        const existingIndicator = messagesContainer.querySelector('.typing-indicator');
+        if (existingIndicator) {
+            existingIndicator.remove();
+        }
 
-    const scrollToBottom = () => {
+        if (isTyping && conversationId === currentName) {
+            const indicator = document.createElement('div');
+            indicator.classList.add('message-bubble', 'other-message', 'typing-indicator');
+            indicator.innerHTML = `
+                <div class="sender">Manager</div>
+                <div class="text">
+                    <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
+                </div>
+            `;
+            messagesContainer.appendChild(indicator);
+            scrollToBottom();
+        }
+    }
+
+    function scrollToBottom() {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    };
+    }
 
-    const loadChatState = async () => {
-        const currentName = nameInput.value.trim();
-        if (!currentName) {
-            messagesContainer.innerHTML = '<p style="text-align: center; font-size: 12px; color: #aaa;">Enter your name to start chatting.</p>';
-            return;
-        }
-
-        try {
-            // Fetch messages and status in parallel
-            const [messagesResponse, statusResponse] = await Promise.all([
-                fetch(`${API_URL}/messages?user=${encodeURIComponent(currentName)}`),
-                fetch(`${API_URL}/status?user=${encodeURIComponent(currentName)}`)
-            ]);
-
-            if (!messagesResponse.ok) throw new Error('Failed to fetch messages');
-            if (!statusResponse.ok) throw new Error('Failed to fetch status');
-
-            const messages = await messagesResponse.json();
-            const status = await statusResponse.json();
-            
-            messagesContainer.innerHTML = ''; // Clear existing content
-            
-            messages.forEach(msg => renderMessage(msg));
-
-            if (status.isTyping) {
-                renderTypingIndicator();
-            }
-
-            scrollToBottom();
-        } catch (error) {
-            console.error('Error loading chat state:', error);
-            messagesContainer.innerHTML = '<p>Could not load messages.</p>';
-        }
-    };
-
-    chatForm.addEventListener('submit', async (e) => {
+    chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const name = nameInput.value.trim();
         const message = messageInput.value.trim();
+        if (!message || !currentName || !ws || ws.readyState !== WebSocket.OPEN) return;
 
-        if (!name || !message) return;
-
-        localStorage.setItem('chat_widget_user_name', name);
-
-        try {
-            const response = await fetch(`${API_URL}/message`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, message }),
-            });
-
-            if (!response.ok) throw new Error('Failed to send message');
-            
-            const newMessage = await response.json();
-            renderMessage(newMessage);
-            messageInput.value = '';
-            scrollToBottom();
-        } catch (error) {
-            console.error('Error sending message:', error);
-            alert('Could not send message.');
-        }
+        const payload = {
+            conversationId: currentName,
+            senderName: currentName,
+            messageText: message
+        };
+        ws.send(JSON.stringify({ type: 'sendMessage', payload }));
+        messageInput.value = '';
     });
 
     nameInput.addEventListener('change', () => {
-        localStorage.setItem('chat_widget_user_name', nameInput.value.trim());
-        loadChatState();
-    });
-
-    // Send message on Enter key press
-    messageInput.addEventListener('keydown', (e) => {
-        // Check if Enter is pressed without the Shift key
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault(); // Prevent adding a new line
-            chatForm.requestSubmit(); // Trigger form submission
+        const newName = nameInput.value.trim();
+        if (newName && newName !== currentName) {
+            currentName = newName;
+            localStorage.setItem('chat_widget_user_name', currentName);
+            messagesContainer.innerHTML = '';
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'register', payload: { conversationId: currentName } }));
+            } else {
+                connect();
+            }
         }
     });
 
-    // Initial load
-    loadChatState();
+    messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            chatForm.requestSubmit();
+        }
+    });
 
-    // Poll for new messages and typing status
-    setInterval(loadChatState, 3000);
+    messageInput.addEventListener('input', () => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        
+        clearTimeout(typingTimeout);
+        ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: currentName, isTyping: true } }));
+        
+        typingTimeout = setTimeout(() => {
+            ws.send(JSON.stringify({ type: 'typing', payload: { conversationId: currentName, isTyping: false } }));
+        }, 3000);
+    });
+
+    if (currentName) {
+        connect();
+    } else {
+        messagesContainer.innerHTML = '<p style="text-align: center; font-size: 12px; color: #aaa;">Enter your name to start chatting.</p>';
+    }
 });

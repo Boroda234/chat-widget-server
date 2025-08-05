@@ -1,145 +1,114 @@
 const express = require('express');
+const http = require('http');
+const { WebSocketServer } = require('ws');
 const cors = require('cors');
-const fs = require('fs');
 const path = require('path');
+const db = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MESSAGES_FILE = path.join(__dirname, 'messages.json');
-
-// In-memory store for typing status { recipientName: timestamp }
-const typingStatus = {};
-const TYPING_TIMEOUT_MS = 8 * 1000; // 8 seconds
 
 // Middleware
-app.use(cors()); // Enable CORS for all routes
-app.use(express.json()); // To parse JSON bodies
-app.use(express.static(path.join(__dirname, 'public'))); // Serve static files
-
-// Helper function to read messages
-const readMessages = (callback) => {
-    fs.readFile(MESSAGES_FILE, 'utf8', (err, data) => {
-        if (err) {
-            if (err.code === 'ENOENT') {
-                // File doesn't exist, start with an empty array
-                return callback(null, []);
-            }
-            return callback(err);
-        }
-        try {
-            const messages = JSON.parse(data);
-            callback(null, messages);
-        } catch (parseErr) {
-            callback(parseErr);
-        }
-    });
-};
-
-// Helper function to write messages
-const writeMessages = (messages, callback) => {
-    fs.writeFile(MESSAGES_FILE, JSON.stringify(messages, null, 2), 'utf8', callback);
-};
-
-// API routes
-app.get('/messages', (req, res) => {
-    const { user } = req.query;
-
-    readMessages((err, messages) => {
-        if (err) {
-            console.error('Error reading messages:', err);
-            return res.status(500).json({ error: 'Failed to read messages.' });
-        }
-
-        if (user) {
-            // Filter messages for a specific user's conversation
-            const userMessages = messages.filter(msg => 
-                msg.name === user || msg.recipient === user
-            );
-            res.json(userMessages);
-        } else {
-            // For admin panel, return all messages
-            res.json(messages);
-        }
-    });
-});
-
-app.post('/message', (req, res) => {
-    const { name, message, recipient } = req.body;
-
-    // Basic validation
-    if (!name || !message || typeof name !== 'string' || typeof message !== 'string' || name.trim() === '' || message.trim() === '') {
-        return res.status(400).json({ error: 'Invalid input: name and message are required.' });
-    }
-
-    const newMessage = {
-        name: name.trim(),
-        message: message.trim(),
-        timestamp: new Date().toISOString()
-    };
-
-    // Add recipient if provided (for manager replies)
-    if (recipient && typeof recipient === 'string' && recipient.trim() !== '') {
-        newMessage.recipient = recipient.trim();
-    }
-
-    readMessages((err, messages) => {
-        if (err) {
-            console.error('Error reading messages for writing:', err);
-            return res.status(500).json({ error: 'Failed to process message.' });
-        }
-
-        messages.push(newMessage);
-
-        writeMessages(messages, (writeErr) => {
-            if (writeErr) {
-                console.error('Error writing message:', writeErr);
-                return res.status(500).json({ error: 'Failed to save message.' });
-            }
-            res.status(201).json(newMessage);
-        });
-    });
-});
-
-// New endpoint for typing signals
-app.post('/typing', (req, res) => {
-    const { recipient } = req.body;
-    if (recipient && typeof recipient === 'string') {
-        typingStatus[recipient] = Date.now();
-        res.status(200).send();
-    } else {
-        res.status(400).json({ error: 'Invalid recipient.' });
-    }
-});
-
-// New endpoint for clients to check status
-app.get('/status', (req, res) => {
-    const { user } = req.query;
-    if (!user) {
-        return res.status(400).json({ error: 'User parameter is required.' });
-    }
-
-    const typingTimestamp = typingStatus[user];
-    const isTyping = typingTimestamp && (Date.now() - typingTimestamp < TYPING_TIMEOUT_MS);
-
-    if (isTyping) {
-        res.json({ isTyping: true });
-    } else {
-        if (typingStatus[user]) {
-            delete typingStatus[user];
-        }
-        res.json({ isTyping: false });
-    }
-});
-
+app.use(cors());
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve a test page
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'test-page.html'));
 });
 
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
 
-app.listen(PORT, () => {
-    console.log(`Chat widget server running on http://localhost:${PORT}`);
-    console.log(`Admin panel available at http://localhost:${PORT}/admin.html`);
-    console.log(`Embed the chat widget using: <script src="http://localhost:${PORT}/chat.js"></script>`);
+// In-memory stores
+const clients = new Map(); // { ws: { conversationId, isAdmin } }
+const onlineUsers = new Set(); // { 'John Doe', 'Jane Smith' }
+
+function broadcastToConversation(conversationId, message) {
+    for (const [client, meta] of clients.entries()) {
+        if (client.readyState === client.OPEN && (meta.conversationId === conversationId || meta.isAdmin)) {
+            client.send(JSON.stringify(message));
+        }
+    }
+}
+
+function broadcastToAdmins(message) {
+    for (const [client, meta] of clients.entries()) {
+        if (client.readyState === client.OPEN && meta.isAdmin) {
+            client.send(JSON.stringify(message));
+        }
+    }
+}
+
+function updateOnlineStatus() {
+    broadcastToAdmins({
+        type: 'onlineStatusUpdate',
+        payload: Array.from(onlineUsers)
+    });
+}
+
+wss.on('connection', (ws) => {
+    console.log('Client connected');
+
+    ws.on('message', async (message) => {
+        let data;
+        try {
+            data = JSON.parse(message);
+        } catch (e) {
+            console.error('Invalid JSON received:', message);
+            return;
+        }
+
+        const { type, payload } = data;
+
+        if (type === 'register') {
+            const { conversationId, isAdmin } = payload;
+            clients.set(ws, { conversationId, isAdmin });
+
+            if (isAdmin) {
+                const allConversations = await db.getAllConversations();
+                ws.send(JSON.stringify({ type: 'allConversations', payload: allConversations }));
+                ws.send(JSON.stringify({ type: 'onlineStatusUpdate', payload: Array.from(onlineUsers) }));
+            } else {
+                const history = await db.getMessagesForConversation(conversationId);
+                ws.send(JSON.stringify({ type: 'history', payload: history }));
+                if (!onlineUsers.has(conversationId)) {
+                    onlineUsers.add(conversationId);
+                    updateOnlineStatus();
+                }
+            }
+        }
+
+        if (type === 'sendMessage') {
+            const { conversationId, senderName, messageText, recipientName } = payload;
+            const newMessage = await db.addMessage(conversationId, senderName, messageText, recipientName);
+            broadcastToConversation(conversationId, { type: 'newMessage', payload: newMessage });
+        }
+
+        if (type === 'typing') {
+            const { conversationId, isTyping } = payload;
+            broadcastToConversation(conversationId, { type: 'typingUpdate', payload: { conversationId, isTyping } });
+        }
+    });
+
+    ws.on('close', () => {
+        const meta = clients.get(ws);
+        if (meta && !meta.isAdmin) {
+            onlineUsers.delete(meta.conversationId);
+            updateOnlineStatus();
+        }
+        clients.delete(ws);
+        console.log('Client disconnected');
+    });
+});
+
+// Initialize database and start server
+db.initializeDatabase().then(() => {
+    server.listen(PORT, () => {
+        console.log(`Chat widget server running on http://localhost:${PORT}`);
+        console.log(`Admin panel available at http://localhost:${PORT}/admin.html`);
+    });
+}).catch(err => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
 });
