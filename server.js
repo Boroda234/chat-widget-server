@@ -34,10 +34,6 @@ app.use(express.urlencoded({ extended: true })); // for parsing form data
 app.use(sessionParser);
 
 // Routes
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'test-page.html'));
-});
-
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
