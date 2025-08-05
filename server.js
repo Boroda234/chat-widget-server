@@ -5,32 +5,39 @@ const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const path = require('path');
 const session = require('express-session');
+const FileStore = require('session-file-store')(session); // Импортируем файловое хранилище
 const db = require('./database');
 
-// --- НАЧАЛО ИЗМЕНЕНИЙ ---
 // Проверка наличия обязательных переменных окружения
 if (!process.env.SESSION_SECRET || !process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
     console.error('FATAL ERROR: Missing required environment variables. Please check your .env file.');
     console.error('Required variables are: SESSION_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD');
-    process.exit(1); // Завершаем процесс с ошибкой
+    process.exit(1);
 }
-// --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Session middleware setup
+// Настройка middleware для сессий с файловым хранилищем
 const sessionParser = session({
+    store: new FileStore({
+        path: './sessions', // Папка для хранения файлов сессий
+        ttl: 86400, // Время жизни сессии в секундах (24 часа)
+        retries: 0
+    }),
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours
+    cookie: { 
+        maxAge: 24 * 60 * 60 * 1000, // 24 часа
+        httpOnly: true // Рекомендуется для безопасности
+    }
 });
 
 // Middleware
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.urlencoded({ extended: true })); // for parsing form data
+app.use(express.urlencoded({ extended: true }));
 app.use(sessionParser);
 
 // Routes
@@ -60,7 +67,6 @@ function requireAuth(req, res, next) {
 
 // Protect admin page
 app.get('/admin.html', requireAuth, (req, res) => {
-    // This is needed to override the static middleware for the protected route
     res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
@@ -149,7 +155,6 @@ wss.on('connection', (ws, req) => {
 // Handle server upgrade to WebSocket, checking for auth
 server.on('upgrade', (request, socket, head) => {
     sessionParser(request, {}, () => {
-        // For admin connections, check session
         if (request.url.startsWith('/admin')) {
             if (!request.session || !request.session.user) {
                 socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
